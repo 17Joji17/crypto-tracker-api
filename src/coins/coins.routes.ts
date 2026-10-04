@@ -2,10 +2,15 @@ import { Router } from 'express';
 import { DatabaseSync } from 'node:sqlite';
 import { CoinsRepository } from './coins.repository';
 import { validateSymbol } from './coins.validation';
+import {
+  BinanceClient,
+  BinanceClientError
+} from '../binance/binance.client';
 
 export function createCoinsRouter(db: DatabaseSync): Router {
   const router = Router();
   const repository = new CoinsRepository(db);
+  const binanceClient = new BinanceClient();
 
   router.get('/', (req, res) => {
     const coins = repository.findAll();
@@ -13,7 +18,7 @@ export function createCoinsRouter(db: DatabaseSync): Router {
     res.json(coins);
   });
 
-  router.get('/:id', (req, res) => {
+  router.get('/:id/price', async (req, res) => {
     const id = Number(req.params.id);
 
     if (!Number.isInteger(id) || id <= 0) {
@@ -40,7 +45,34 @@ export function createCoinsRouter(db: DatabaseSync): Router {
       return;
     }
 
-    res.json(coin);
+    try {
+      const result = await binanceClient.getPrice(coin.pair);
+
+      res.json({
+        coin_id: coin.id,
+        symbol: coin.symbol,
+        pair: coin.pair,
+        price: result.price,
+        source: 'Binance',
+        fetched_at: new Date().toISOString()
+      });
+    } catch (error) {
+      if (error instanceof BinanceClientError) {
+        const status =
+          error.code === 'BINANCE_TIMEOUT' ? 504 : 502;
+
+        res.status(status).json({
+          error: {
+            code: error.code,
+            message: error.message
+          }
+        });
+
+        return;
+      }
+
+      throw error;
+    }
   });
 
   router.post('/', (req, res) => {
