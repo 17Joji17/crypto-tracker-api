@@ -16,7 +16,21 @@ export function createDatabase(dbPath: string): DatabaseSync {
       pair TEXT NOT NULL UNIQUE,
       created_at TEXT NOT NULL
     );
-  `);
+
+    CREATE TABLE IF NOT EXISTS price_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      coin_id INTEGER NOT NULL,
+      price TEXT NOT NULL,
+      recorded_at INTEGER NOT NULL,
+
+      FOREIGN KEY (coin_id)
+        REFERENCES coins(id)
+        ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_price_history_coin_time
+    ON price_history(coin_id, recorded_at);
+      `);
 
   return db;
 }
