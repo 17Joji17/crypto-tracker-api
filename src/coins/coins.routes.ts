@@ -6,16 +6,94 @@ import {
   BinanceClient,
   BinanceClientError
 } from '../binance/binance.client';
+import { PricesRepository } from '../prices/prices.repository';
 
 export function createCoinsRouter(db: DatabaseSync): Router {
   const router = Router();
   const repository = new CoinsRepository(db);
   const binanceClient = new BinanceClient();
+  const pricesRepository = new PricesRepository(db);
 
   router.get('/', (req, res) => {
     const coins = repository.findAll();
 
     res.json(coins);
+  });
+
+  router.get('/:id/history', (req, res) => {
+    const id = Number(req.params.id);
+
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid coin id'
+        }
+      });
+
+      return;
+    }
+
+    const coin = repository.findById(id);
+
+    if (!coin) {
+      res.status(404).json({
+        error: {
+          code: 'COIN_NOT_FOUND',
+          message: 'Coin not found'
+        }
+      });
+
+      return;
+    }
+
+    let limit = 100;
+
+    if (req.query.limit !== undefined) {
+      if (
+        typeof req.query.limit !== 'string' ||
+        !/^\d+$/.test(req.query.limit)
+      ) {
+        res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid limit'
+          }
+        });
+
+        return;
+      }
+
+      limit = Number(req.query.limit);
+
+      if (limit < 1 || limit > 1000) {
+        res.status(400).json({
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Limit must be between 1 and 1000'
+          }
+        });
+
+        return;
+      }
+    }
+
+    const history = pricesRepository
+      .findByCoinId(id, limit)
+      .map((record) => ({
+        id: record.id,
+        price: record.price,
+        recorded_at: new Date(record.recorded_at).toISOString()
+      }));
+
+    res.json({
+      coin: {
+        id: coin.id,
+        symbol: coin.symbol,
+        pair: coin.pair
+      },
+      history
+    });
   });
 
   router.get('/:id/price', async (req, res) => {
