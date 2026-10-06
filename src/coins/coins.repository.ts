@@ -2,9 +2,11 @@ import { DatabaseSync } from 'node:sqlite';
 
 export interface Coin {
   id: number;
+  cmc_id: number;
   symbol: string;
-  pair: string;
+  name: string;
   created_at: string;
+  updated_at: string;
 }
 
 export class CoinsRepository {
@@ -12,7 +14,13 @@ export class CoinsRepository {
 
   findAll(): Coin[] {
     const statement = this.db.prepare(`
-      SELECT id, symbol, pair, created_at
+      SELECT
+        id,
+        cmc_id,
+        symbol,
+        name,
+        created_at,
+        updated_at
       FROM coins
       ORDER BY id
     `);
@@ -22,7 +30,13 @@ export class CoinsRepository {
 
   findById(id: number): Coin | null {
     const statement = this.db.prepare(`
-      SELECT id, symbol, pair, created_at
+      SELECT
+        id,
+        cmc_id,
+        symbol,
+        name,
+        created_at,
+        updated_at
       FROM coins
       WHERE id = ?
     `);
@@ -32,36 +46,81 @@ export class CoinsRepository {
     return (coin as unknown as Coin) ?? null;
   }
 
-  create(symbol: string): Coin {
-    const pair = `${symbol}USDT`;
+  create(
+    cmcId: number,
+    symbol: string,
+    name: string,
+    updatedAt: string
+  ): Coin {
     const createdAt = new Date().toISOString();
 
     const statement = this.db.prepare(`
-      INSERT INTO coins (symbol, pair, created_at)
-      VALUES (?, ?, ?)
+      INSERT INTO coins (
+        cmc_id,
+        symbol,
+        name,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?)
     `);
 
-    const result = statement.run(symbol, pair, createdAt);
+    const result = statement.run(
+      cmcId,
+      symbol,
+      name,
+      createdAt,
+      updatedAt
+    );
 
-    return this.findById(Number(result.lastInsertRowid))!;
+    return this.findById(
+      Number(result.lastInsertRowid)
+    )!;
   }
 
-  update(id: number, symbol: string): Coin | null {
-    const pair = `${symbol}USDT`;
-
+  update(
+    id: number,
+    cmcId: number,
+    symbol: string,
+    name: string,
+    updatedAt: string
+  ): Coin | null {
     const statement = this.db.prepare(`
       UPDATE coins
-      SET symbol = ?, pair = ?
+      SET
+        cmc_id = ?,
+        symbol = ?,
+        name = ?,
+        updated_at = ?
       WHERE id = ?
     `);
 
-    const result = statement.run(symbol, pair, id);
+    const result = statement.run(
+      cmcId,
+      symbol,
+      name,
+      updatedAt,
+      id
+    );
 
     if (result.changes === 0) {
       return null;
     }
 
     return this.findById(id);
+  }
+
+  updateLastUpdated(
+    id: number,
+    updatedAt: string
+  ): void {
+    const statement = this.db.prepare(`
+      UPDATE coins
+      SET updated_at = ?
+      WHERE id = ?
+    `);
+
+    statement.run(updatedAt, id);
   }
 
   delete(id: number): boolean {

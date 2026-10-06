@@ -2,7 +2,7 @@ import { createDatabase } from './db/database';
 import { createApp } from './app';
 import { CoinsRepository } from './coins/coins.repository';
 import { PricesRepository } from './prices/prices.repository';
-import { BinanceClient } from './binance/binance.client';
+import { CoinMarketCapClient } from './coinmarketcap/coinmarketcap.client';
 import { PriceSyncJob } from './jobs/price-sync.job';
 
 const port = Number(
@@ -20,12 +20,12 @@ const db = createDatabase(dbPath);
 
 const coinsRepository = new CoinsRepository(db);
 const pricesRepository = new PricesRepository(db);
-const binanceClient = new BinanceClient();
+const coinMarketCapClient = new CoinMarketCapClient();
 
 const priceSyncJob = new PriceSyncJob(
   coinsRepository,
   pricesRepository,
-  binanceClient,
+  coinMarketCapClient,
   syncIntervalMs
 );
 
