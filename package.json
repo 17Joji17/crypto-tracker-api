@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node --env-file=.env dist/server.js"
+    "start": "node --env-file=.env dist/server.js",
+    "test": "npm run build && jest --runInBand",
+    "test:coverage": "npm run build && jest --coverage --runInBand"
   },
   "keywords": [],
   "author": "",
@@ -18,6 +20,8 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.5",
+    "jest": "^30.5.2",
+    "supertest": "^7.3.1",
     "typescript": "^7.0.2"
   }
 }
