@@ -12,9 +12,11 @@ export function createDatabase(dbPath: string): DatabaseSync {
 
     CREATE TABLE IF NOT EXISTS coins (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cmc_id INTEGER NOT NULL UNIQUE,
       symbol TEXT NOT NULL UNIQUE,
-      pair TEXT NOT NULL UNIQUE,
-      created_at TEXT NOT NULL
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS price_history (

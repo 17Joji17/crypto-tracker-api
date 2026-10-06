@@ -1,19 +1,42 @@
-import { Router } from 'express';
+import { Response, Router } from 'express';
 import { DatabaseSync } from 'node:sqlite';
 import { CoinsRepository } from './coins.repository';
 import { validateSymbol } from './coins.validation';
 import {
-  BinanceClient,
-  BinanceClientError
-} from '../binance/binance.client';
+  CoinMarketCapClient,
+  CoinMarketCapClientError
+} from '../coinmarketcap/coinmarketcap.client';
 import { PricesRepository } from '../prices/prices.repository';
+
+function sendCmcError(
+    res: Response,
+    error: CoinMarketCapClientError
+  ): void {
+    let status = 502;
+
+    if (error.code === 'CMC_TIMEOUT') {
+      status = 504;
+    } else if (error.code === 'CMC_RATE_LIMIT') {
+      status = 503;
+    } else if (
+      error.code === 'CMC_CONFIGURATION_ERROR'
+    ) {
+      status = 500;
+    }
+
+    res.status(status).json({
+      error: {
+        code: error.code,
+        message: error.message
+      }
+    });
+  }
 
 export function createCoinsRouter(db: DatabaseSync): Router {
   const router = Router();
   const repository = new CoinsRepository(db);
-  const binanceClient = new BinanceClient();
   const pricesRepository = new PricesRepository(db);
-
+  const coinMarketCapClient = new CoinMarketCapClient();
   router.get('/', (req, res) => {
     const coins = repository.findAll();
 
@@ -89,149 +112,225 @@ export function createCoinsRouter(db: DatabaseSync): Router {
     res.json({
       coin: {
         id: coin.id,
+        cmc_id: coin.cmc_id,
         symbol: coin.symbol,
-        pair: coin.pair
+        name: coin.name
       },
       history
     });
   });
 
-  router.get('/:id/price', async (req, res) => {
-    const id = Number(req.params.id);
+router.get('/:id/price', async (req, res) => {
+  const id = Number(req.params.id);
 
-    if (!Number.isInteger(id) || id <= 0) {
-      res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid coin id'
-        }
-      });
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid coin id'
+      }
+    });
 
+    return;
+  }
+
+  const coin = repository.findById(id);
+
+  if (!coin) {
+    res.status(404).json({
+      error: {
+        code: 'COIN_NOT_FOUND',
+        message: 'Coin not found'
+      }
+    });
+
+    return;
+  }
+
+  try {
+    const quote =
+      await coinMarketCapClient.getQuoteById(
+        coin.cmc_id
+      );
+
+    repository.updateLastUpdated(
+      coin.id,
+      quote.lastUpdated
+    );
+
+    res.json({
+      coin_id: coin.id,
+      cmc_id: coin.cmc_id,
+      symbol: coin.symbol,
+      name: coin.name,
+      price: quote.price,
+      currency: quote.currency,
+      source: 'CoinMarketCap',
+      updated_at: quote.lastUpdated,
+      fetched_at: new Date().toISOString()
+    });
+  } catch (error) {
+    if (error instanceof CoinMarketCapClientError) {
+      sendCmcError(res, error);
       return;
     }
 
-    const coin = repository.findById(id);
+    throw error;
+  }
+});
 
-    if (!coin) {
-      res.status(404).json({
-        error: {
-          code: 'COIN_NOT_FOUND',
-          message: 'Coin not found'
-        }
-      });
+router.post('/', async (req, res) => {
+  const symbol = validateSymbol(req.body?.symbol);
 
-      return;
-    }
+  if (!symbol) {
+    res.status(400).json({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid symbol'
+      }
+    });
 
-    try {
-      const result = await binanceClient.getPrice(coin.pair);
+    return;
+  }
 
-      res.json({
-        coin_id: coin.id,
-        symbol: coin.symbol,
-        pair: coin.pair,
-        price: result.price,
-        source: 'Binance',
-        fetched_at: new Date().toISOString()
-      });
-    } catch (error) {
-      if (error instanceof BinanceClientError) {
-        const status =
-          error.code === 'BINANCE_TIMEOUT' ? 504 : 502;
+  let quote;
 
-        res.status(status).json({
+  try {
+    quote =
+      await coinMarketCapClient.getQuoteBySymbol(
+        symbol
+      );
+  } catch (error) {
+    if (error instanceof CoinMarketCapClientError) {
+      if (
+        error.code ===
+        'CMC_CRYPTOCURRENCY_NOT_FOUND'
+      ) {
+        res.status(400).json({
           error: {
-            code: error.code,
-            message: error.message
+            code: 'INVALID_CRYPTOCURRENCY',
+            message:
+              'Cryptocurrency was not found in CoinMarketCap'
           }
         });
 
         return;
       }
 
-      throw error;
-    }
-  });
-
-  router.post('/', (req, res) => {
-    const symbol = validateSymbol(req.body?.symbol);
-
-    if (!symbol) {
-      res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid symbol'
-        }
-      });
-
+      sendCmcError(res, error);
       return;
     }
 
-    try {
-      const coin = repository.create(symbol);
+    throw error;
+  }
 
-      res.status(201).json(coin);
-    } catch {
-      res.status(409).json({
-        error: {
-          code: 'COIN_ALREADY_EXISTS',
-          message: 'Coin is already tracked'
-        }
-      });
-    }
-  });
+  try {
+    const coin = repository.create(
+      quote.cmcId,
+      quote.symbol,
+      quote.name,
+      quote.lastUpdated
+    );
 
-  router.put('/:id', (req, res) => {
-    const id = Number(req.params.id);
+    res.status(201).json(coin);
+  } catch {
+    res.status(409).json({
+      error: {
+        code: 'COIN_ALREADY_EXISTS',
+        message: 'Coin is already tracked'
+      }
+    });
+  }
+});
 
-    if (!Number.isInteger(id) || id <= 0) {
-      res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid coin id'
-        }
-      });
+  router.put('/:id', async (req, res) => {
+  const id = Number(req.params.id);
 
-      return;
-    }
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid coin id'
+      }
+    });
 
-    const symbol = validateSymbol(req.body?.symbol);
+    return;
+  }
 
-    if (!symbol) {
-      res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid symbol'
-        }
-      });
+  if (!repository.findById(id)) {
+    res.status(404).json({
+      error: {
+        code: 'COIN_NOT_FOUND',
+        message: 'Coin not found'
+      }
+    });
 
-      return;
-    }
+    return;
+  }
 
-    try {
-      const coin = repository.update(id, symbol);
+  const symbol = validateSymbol(req.body?.symbol);
 
-      if (!coin) {
-        res.status(404).json({
+  if (!symbol) {
+    res.status(400).json({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Invalid symbol'
+      }
+    });
+
+    return;
+  }
+
+  let quote;
+
+  try {
+    quote =
+      await coinMarketCapClient.getQuoteBySymbol(
+        symbol
+      );
+  } catch (error) {
+    if (error instanceof CoinMarketCapClientError) {
+      if (
+        error.code ===
+        'CMC_CRYPTOCURRENCY_NOT_FOUND'
+      ) {
+        res.status(400).json({
           error: {
-            code: 'COIN_NOT_FOUND',
-            message: 'Coin not found'
+            code: 'INVALID_CRYPTOCURRENCY',
+            message:
+              'Cryptocurrency was not found in CoinMarketCap'
           }
         });
 
         return;
       }
 
-      res.json(coin);
-    } catch {
-      res.status(409).json({
-        error: {
-          code: 'COIN_ALREADY_EXISTS',
-          message: 'Coin is already tracked'
-        }
-      });
+      sendCmcError(res, error);
+      return;
     }
-  });
+
+    throw error;
+  }
+
+  try {
+    const coin = repository.update(
+      id,
+      quote.cmcId,
+      quote.symbol,
+      quote.name,
+      quote.lastUpdated
+    );
+
+    res.json(coin);
+  } catch {
+    res.status(409).json({
+      error: {
+        code: 'COIN_ALREADY_EXISTS',
+        message: 'Coin is already tracked'
+      }
+    });
+  }
+});
 
   router.delete('/:id', (req, res) => {
     const id = Number(req.params.id);

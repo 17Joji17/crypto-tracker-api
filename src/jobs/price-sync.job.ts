@@ -1,6 +1,6 @@
 import { CoinsRepository } from '../coins/coins.repository';
 import { PricesRepository } from '../prices/prices.repository';
-import { BinanceClient } from '../binance/binance.client';
+import { CoinMarketCapClient } from '../coinmarketcap/coinmarketcap.client';
 
 export class PriceSyncJob {
   private timer: NodeJS.Timeout | null = null;
@@ -10,7 +10,7 @@ export class PriceSyncJob {
   constructor(
     private readonly coinsRepository: CoinsRepository,
     private readonly pricesRepository: PricesRepository,
-    private readonly binanceClient: BinanceClient,
+    private readonly coinMarketCapClient: CoinMarketCapClient,
     private readonly intervalMs: number
   ) {}
 
@@ -20,7 +20,6 @@ export class PriceSyncJob {
     }
 
     this.stopping = false;
-
     this.scheduleNext(0);
   }
 
@@ -40,26 +39,52 @@ export class PriceSyncJob {
   async syncOnce(): Promise<void> {
     const coins = this.coinsRepository.findAll();
 
-    for (const coin of coins) {
-      try {
-        const price = await this.binanceClient.getPrice(
-          coin.pair
+    if (coins.length === 0) {
+      return;
+    }
+
+    try {
+      const quotes =
+        await this.coinMarketCapClient.getQuotesByIds(
+          coins.map((coin) => coin.cmc_id)
         );
+
+      const quotesById = new Map(
+        quotes.map((quote) => [
+          quote.cmcId,
+          quote
+        ])
+      );
+
+      for (const coin of coins) {
+        const quote = quotesById.get(coin.cmc_id);
+
+        if (!quote) {
+          console.error(
+            `No CoinMarketCap quote for ${coin.symbol}`
+          );
+          continue;
+        }
 
         this.pricesRepository.create(
           coin.id,
-          price.price
+          quote.price
+        );
+
+        this.coinsRepository.updateLastUpdated(
+          coin.id,
+          quote.lastUpdated
         );
 
         console.log(
-          `Price synced: ${coin.pair} = ${price.price}`
-        );
-      } catch (error) {
-        console.error(
-          `Failed to sync price for ${coin.pair}:`,
-          error
+          `Price synced: ${coin.symbol} = ${quote.price} ${quote.currency}`
         );
       }
+    } catch (error) {
+      console.error(
+        'Failed to synchronize CoinMarketCap prices:',
+        error
+      );
     }
   }
 
