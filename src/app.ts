@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { authMiddleware } from './middleware/auth.middleware';
 import { createCoinsRouter } from './coins/coins.routes';
 import { errorMiddleware } from './middleware/error.middleware';
+import { resolve } from 'node:path';
 
 export function createApp(db: DatabaseSync): Express {
   const app = express();
@@ -13,6 +14,16 @@ export function createApp(db: DatabaseSync): Express {
     res.json({
       status: 'ok'
     });
+  });
+
+  app.get('/openapi.json', (req, res) => {
+    res.sendFile(
+      resolve(
+        process.cwd(),
+        'openapi',
+        'openapi.json'
+      )
+    );
   });
 
   app.use('/api', authMiddleware);

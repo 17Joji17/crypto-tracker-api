@@ -1,0 +1,505 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Crypto Tracker API",
+    "version": "1.0.0",
+    "description": "REST API for tracking cryptocurrencies, retrieving current prices from CoinMarketCap and storing historical price data."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Application API key passed as Bearer token"
+      }
+    },
+    "schemas": {
+      "Coin": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "example": 1
+          },
+          "cmc_id": {
+            "type": "integer",
+            "example": 1
+          },
+          "symbol": {
+            "type": "string",
+            "example": "BTC"
+          },
+          "name": {
+            "type": "string",
+            "example": "Bitcoin"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "cmc_id",
+          "symbol",
+          "name",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "Price": {
+        "type": "object",
+        "properties": {
+          "coin_id": {
+            "type": "integer"
+          },
+          "cmc_id": {
+            "type": "integer"
+          },
+          "symbol": {
+            "type": "string",
+            "example": "BTC"
+          },
+          "name": {
+            "type": "string",
+            "example": "Bitcoin"
+          },
+          "price": {
+            "type": "string",
+            "example": "100000.5"
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "source": {
+            "type": "string",
+            "example": "CoinMarketCap"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "HistoryRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "price": {
+            "type": "string",
+            "example": "100000.5"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Service is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "summary": "Get OpenAPI specification",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.0 document"
+          }
+        }
+      }
+    },
+    "/api/coins": {
+      "get": {
+        "summary": "Get tracked cryptocurrencies",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tracked cryptocurrencies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Coin"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Add cryptocurrency",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "symbol": {
+                    "type": "string",
+                    "example": "BTC"
+                  }
+                },
+                "required": [
+                  "symbol"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Cryptocurrency created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Coin"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid cryptocurrency or request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "409": {
+            "description": "Cryptocurrency already tracked"
+          },
+          "502": {
+            "description": "CoinMarketCap API error"
+          },
+          "504": {
+            "description": "CoinMarketCap timeout"
+          }
+        }
+      }
+    },
+    "/api/coins/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      ],
+      "get": {
+        "summary": "Get tracked cryptocurrency",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tracked cryptocurrency",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Coin"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Cryptocurrency not found"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update tracked cryptocurrency",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "symbol": {
+                    "type": "string",
+                    "example": "ETH"
+                  }
+                },
+                "required": [
+                  "symbol"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Cryptocurrency updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Coin"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Cryptocurrency not found"
+          },
+          "409": {
+            "description": "Cryptocurrency already tracked"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete tracked cryptocurrency",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Cryptocurrency deleted"
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Cryptocurrency not found"
+          }
+        }
+      }
+    },
+    "/api/coins/{id}/price": {
+      "get": {
+        "summary": "Get current cryptocurrency price",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current CoinMarketCap price",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Price"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Cryptocurrency not found"
+          },
+          "502": {
+            "description": "CoinMarketCap API error"
+          },
+          "503": {
+            "description": "CoinMarketCap rate limit exceeded"
+          },
+          "504": {
+            "description": "CoinMarketCap timeout"
+          }
+        }
+      }
+    },
+    "/api/coins/{id}/history": {
+      "get": {
+        "summary": "Get stored cryptocurrency price history",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stored price history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "coin": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "cmc_id": {
+                          "type": "integer"
+                        },
+                        "symbol": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "history": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/HistoryRecord"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid ID or limit"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Cryptocurrency not found"
+          }
+        }
+      }
+    }
+  }
+}
