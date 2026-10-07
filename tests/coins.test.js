@@ -477,3 +477,25 @@ describe('JSON error handling', () => {
       .toBe('INVALID_JSON');
   });
 });
+
+describe('GET /openapi.json', () => {
+  test('returns OpenAPI specification', async () => {
+    const response = await request(app)
+      .get('/openapi.json');
+
+    expect(response.status).toBe(200);
+
+    expect(response.body.openapi)
+      .toBe('3.0.3');
+
+    expect(response.body.info.title)
+      .toBe('Crypto Tracker API');
+  });
+
+  test('does not require API authentication', async () => {
+    const response = await request(app)
+      .get('/openapi.json');
+
+    expect(response.status).toBe(200);
+  });
+});
