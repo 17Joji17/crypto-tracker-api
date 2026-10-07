@@ -499,3 +499,22 @@ describe('GET /openapi.json', () => {
     expect(response.status).toBe(200);
   });
 });
+
+describe('GET /docs', () => {
+  test('returns Swagger UI page', async () => {
+    const response = await request(app)
+      .get('/docs');
+
+    expect(response.status).toBe(200);
+    expect(response.type).toMatch(/html/);
+    expect(response.text).toContain('swagger-ui');
+    expect(response.text).toContain('/openapi.json');
+  });
+
+  test('does not require authentication', async () => {
+    const response = await request(app)
+      .get('/docs');
+
+    expect(response.status).toBe(200);
+  });
+});

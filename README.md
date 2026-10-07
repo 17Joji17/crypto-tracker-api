@@ -384,7 +384,12 @@ API возвращает ошибки в JSON-формате:
 - `503` — превышение rate limit CoinMarketCap;
 - `504` — timeout внешнего API.
 
-## OpenAPI
+## Swagger / OpenAPI
+
+Интерактивная Swagger-документация доступна после запуска приложения:
+
+```text
+http://localhost:3000/docs
 
 Спецификация OpenAPI 3.0 находится в:
 
@@ -434,7 +439,7 @@ npm run test:coverage
 На момент подготовки проекта:
 
 ```text
-29 тестов проходят успешно
+31 тест проходят успешно
 ```
 
 До добавления тестов OpenAPI endpoint.
