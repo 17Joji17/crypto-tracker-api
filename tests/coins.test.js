@@ -38,6 +38,7 @@ const AUTH = {
   Authorization: `Bearer ${API_KEY}`
 };
 
+
 const BTC_RESPONSE = {
   data: [
     {
@@ -48,12 +49,14 @@ const BTC_RESPONSE = {
         {
           symbol: 'USD',
           price: 100000.5,
-          last_updated: '2026-10-06T12:00:00.000Z'
+          last_updated:
+            '2026-10-06T12:00:00.000Z'
         }
       ]
     }
   ]
 };
+
 
 const ETH_RESPONSE = {
   data: [
@@ -65,7 +68,8 @@ const ETH_RESPONSE = {
         {
           symbol: 'USD',
           price: 3500.25,
-          last_updated: '2026-10-06T12:00:00.000Z'
+          last_updated:
+            '2026-10-06T12:00:00.000Z'
         }
       ]
     }
@@ -83,13 +87,18 @@ let pricesRepository;
 beforeEach(() => {
   process.env.API_KEY = API_KEY;
   process.env.CMC_API_KEY = 'test-cmc-key';
+
   process.env.CMC_BASE_URL =
     'https://pro-api.coinmarketcap.com';
+
   process.env.CMC_TIMEOUT_MS = '5000';
   process.env.PRICE_CURRENCY = 'USD';
 
   tempDirectory = mkdtempSync(
-    join(tmpdir(), 'crypto-tracker-test-')
+    join(
+      tmpdir(),
+      'crypto-tracker-test-'
+    )
   );
 
   const dbPath = join(
@@ -124,10 +133,36 @@ afterEach(() => {
 });
 
 
-function mockCmcResponse(data) {
+function mockSymbolCmcResponse(data) {
+  const asset = data.data[0];
+
   jest
     .spyOn(axios, 'get')
-    .mockResolvedValue({ data });
+    .mockResolvedValueOnce({
+      data: {
+        data: [
+          {
+            id: asset.id,
+            name: asset.name,
+            symbol: asset.symbol,
+            rank: 1,
+            is_active: 1
+          }
+        ]
+      }
+    })
+    .mockResolvedValueOnce({
+      data
+    });
+}
+
+
+function mockQuoteResponse(data) {
+  jest
+    .spyOn(axios, 'get')
+    .mockResolvedValue({
+      data
+    });
 }
 
 
@@ -149,6 +184,7 @@ describe('GET /health', () => {
       .get('/health');
 
     expect(response.status).toBe(200);
+
     expect(response.body).toEqual({
       status: 'ok'
     });
@@ -159,6 +195,59 @@ describe('GET /health', () => {
       .post('/health');
 
     expect(response.status).toBe(404);
+  });
+});
+
+
+/*OPENAPI*/
+
+describe('GET /openapi.json', () => {
+  test('returns OpenAPI specification', async () => {
+    const response = await request(app)
+      .get('/openapi.json');
+
+    expect(response.status).toBe(200);
+
+    expect(response.body.openapi)
+      .toBe('3.0.3');
+
+    expect(response.body.info.title)
+      .toBe('Crypto Tracker API');
+  });
+
+  test('does not require API authentication', async () => {
+    const response = await request(app)
+      .get('/openapi.json');
+
+    expect(response.status).toBe(200);
+  });
+});
+
+
+/*SWAGGER*/
+
+describe('GET /docs', () => {
+  test('returns Swagger UI page', async () => {
+    const response = await request(app)
+      .get('/docs');
+
+    expect(response.status).toBe(200);
+
+    expect(response.type)
+      .toMatch(/html/);
+
+    expect(response.text)
+      .toContain('swagger-ui');
+
+    expect(response.text)
+      .toContain('/openapi.json');
+  });
+
+  test('does not require authentication', async () => {
+    const response = await request(app)
+      .get('/docs');
+
+    expect(response.status).toBe(200);
   });
 });
 
@@ -174,13 +263,16 @@ describe('GET /api/coins', () => {
       .set(AUTH);
 
     expect(response.status).toBe(200);
-    expect(response.body).toHaveLength(1);
 
-    expect(response.body[0]).toMatchObject({
-      cmc_id: 1,
-      symbol: 'BTC',
-      name: 'Bitcoin'
-    });
+    expect(response.body)
+      .toHaveLength(1);
+
+    expect(response.body[0])
+      .toMatchObject({
+        cmc_id: 1,
+        symbol: 'BTC',
+        name: 'Bitcoin'
+      });
   });
 
   test('rejects request without API key', async () => {
@@ -207,12 +299,13 @@ describe('GET /api/coins/:id', () => {
 
     expect(response.status).toBe(200);
 
-    expect(response.body).toMatchObject({
-      id: coin.id,
-      cmc_id: 1,
-      symbol: 'BTC',
-      name: 'Bitcoin'
-    });
+    expect(response.body)
+      .toMatchObject({
+        id: coin.id,
+        cmc_id: 1,
+        symbol: 'BTC',
+        name: 'Bitcoin'
+      });
   });
 
   test('returns 404 for unknown coin', async () => {
@@ -232,7 +325,9 @@ describe('GET /api/coins/:id', () => {
 
 describe('POST /api/coins', () => {
   test('creates cryptocurrency using CoinMarketCap data', async () => {
-    mockCmcResponse(BTC_RESPONSE);
+    mockSymbolCmcResponse(
+      BTC_RESPONSE
+    );
 
     const response = await request(app)
       .post('/api/coins')
@@ -243,11 +338,12 @@ describe('POST /api/coins', () => {
 
     expect(response.status).toBe(201);
 
-    expect(response.body).toMatchObject({
-      cmc_id: 1,
-      symbol: 'BTC',
-      name: 'Bitcoin'
-    });
+    expect(response.body)
+      .toMatchObject({
+        cmc_id: 1,
+        symbol: 'BTC',
+        name: 'Bitcoin'
+      });
   });
 
   test('rejects invalid symbol', async () => {
@@ -267,7 +363,9 @@ describe('POST /api/coins', () => {
   test('rejects duplicate cryptocurrency', async () => {
     createBtc();
 
-    mockCmcResponse(BTC_RESPONSE);
+    mockSymbolCmcResponse(
+      BTC_RESPONSE
+    );
 
     const response = await request(app)
       .post('/api/coins')
@@ -290,7 +388,9 @@ describe('PUT /api/coins/:id', () => {
   test('updates tracked cryptocurrency', async () => {
     const coin = createBtc();
 
-    mockCmcResponse(ETH_RESPONSE);
+    mockSymbolCmcResponse(
+      ETH_RESPONSE
+    );
 
     const response = await request(app)
       .put(`/api/coins/${coin.id}`)
@@ -301,12 +401,13 @@ describe('PUT /api/coins/:id', () => {
 
     expect(response.status).toBe(200);
 
-    expect(response.body).toMatchObject({
-      id: coin.id,
-      cmc_id: 1027,
-      symbol: 'ETH',
-      name: 'Ethereum'
-    });
+    expect(response.body)
+      .toMatchObject({
+        id: coin.id,
+        cmc_id: 1027,
+        symbol: 'ETH',
+        name: 'Ethereum'
+      });
   });
 
   test('returns 404 for unknown coin', async () => {
@@ -361,31 +462,34 @@ describe('GET /api/coins/:id/price', () => {
   test('returns current CoinMarketCap price', async () => {
     const coin = createBtc();
 
-    mockCmcResponse(BTC_RESPONSE);
+    mockQuoteResponse(
+      BTC_RESPONSE
+    );
 
     const response = await request(app)
-      .get(`/api/coins/${coin.id}/price`)
+      .get(
+        `/api/coins/${coin.id}/price`
+      )
       .set(AUTH);
 
     expect(response.status).toBe(200);
 
-    expect(response.body).toMatchObject({
-      coin_id: coin.id,
-      cmc_id: 1,
-      symbol: 'BTC',
-      name: 'Bitcoin',
-      price: '100000.5',
-      currency: 'USD',
-      source: 'CoinMarketCap'
-    });
+    expect(response.body)
+      .toMatchObject({
+        coin_id: coin.id,
+        cmc_id: 1,
+        symbol: 'BTC',
+        name: 'Bitcoin',
+        price: '100000.5',
+        currency: 'USD',
+        source: 'CoinMarketCap'
+      });
   });
 
   test('returns timeout error when CoinMarketCap times out', async () => {
     const coin = createBtc();
 
-    const error = new Error(
-      'timeout'
-    );
+    const error = new Error('timeout');
 
     error.code = 'ECONNABORTED';
     error.isAxiosError = true;
@@ -395,7 +499,9 @@ describe('GET /api/coins/:id/price', () => {
       .mockRejectedValue(error);
 
     const response = await request(app)
-      .get(`/api/coins/${coin.id}/price`)
+      .get(
+        `/api/coins/${coin.id}/price`
+      )
       .set(AUTH);
 
     expect(response.status).toBe(504);
@@ -421,7 +527,9 @@ describe('GET /api/coins/:id/history', () => {
     );
 
     const response = await request(app)
-      .get(`/api/coins/${coin.id}/history`)
+      .get(
+        `/api/coins/${coin.id}/history`
+      )
       .set(AUTH);
 
     expect(response.status).toBe(200);
@@ -437,8 +545,9 @@ describe('GET /api/coins/:id/history', () => {
     expect(response.body.history)
       .toHaveLength(1);
 
-    expect(response.body.history[0].price)
-      .toBe('100000.5');
+    expect(
+      response.body.history[0].price
+    ).toBe('100000.5');
   });
 
   test('rejects invalid limit', async () => {
@@ -475,46 +584,5 @@ describe('JSON error handling', () => {
 
     expect(response.body.error.code)
       .toBe('INVALID_JSON');
-  });
-});
-
-describe('GET /openapi.json', () => {
-  test('returns OpenAPI specification', async () => {
-    const response = await request(app)
-      .get('/openapi.json');
-
-    expect(response.status).toBe(200);
-
-    expect(response.body.openapi)
-      .toBe('3.0.3');
-
-    expect(response.body.info.title)
-      .toBe('Crypto Tracker API');
-  });
-
-  test('does not require API authentication', async () => {
-    const response = await request(app)
-      .get('/openapi.json');
-
-    expect(response.status).toBe(200);
-  });
-});
-
-describe('GET /docs', () => {
-  test('returns Swagger UI page', async () => {
-    const response = await request(app)
-      .get('/docs');
-
-    expect(response.status).toBe(200);
-    expect(response.type).toMatch(/html/);
-    expect(response.text).toContain('swagger-ui');
-    expect(response.text).toContain('/openapi.json');
-  });
-
-  test('does not require authentication', async () => {
-    const response = await request(app)
-      .get('/docs');
-
-    expect(response.status).toBe(200);
   });
 });
