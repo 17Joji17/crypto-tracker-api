@@ -13,6 +13,14 @@ interface CmcAsset {
   quote: CmcQuoteData[];
 }
 
+interface CmcMapAsset {
+  id: number;
+  name: string;
+  symbol: string;
+  rank?: number | null;
+  is_active?: number;
+}
+
 export interface CoinMarketCapQuote {
   cmcId: number;
   name: string;
@@ -67,24 +75,9 @@ export class CoinMarketCapClient {
   async getQuoteBySymbol(
     symbol: string
   ): Promise<CoinMarketCapQuote> {
-    const assets = await this.request({
-      symbol: symbol.toUpperCase()
-    });
+    const cmcId = await this.resolveIdBySymbol(symbol);
 
-    const asset =
-      assets.find(
-        (item) =>
-          item.symbol.toUpperCase() === symbol.toUpperCase()
-      ) ?? assets[0];
-
-    if (!asset) {
-      throw new CoinMarketCapClientError(
-        'CMC_CRYPTOCURRENCY_NOT_FOUND',
-        'Cryptocurrency was not found in CoinMarketCap'
-      );
-    }
-
-    return this.toQuote(asset);
+    return this.getQuoteById(cmcId);
   }
 
   async getQuoteById(
@@ -124,24 +117,125 @@ export class CoinMarketCapClient {
     );
   }
 
+  private async resolveIdBySymbol(
+    symbol: string
+  ): Promise<number> {
+    this.ensureConfigured();
+
+    const normalizedSymbol =
+      symbol.trim().toUpperCase();
+
+    try {
+      const response = await axios.get<unknown>(
+        `${this.baseUrl}/v1/cryptocurrency/map`,
+        {
+          headers: this.getHeaders(),
+          params: {
+            symbol: normalizedSymbol
+          },
+          timeout: this.timeoutMs
+        }
+      );
+
+      let data: unknown;
+
+      if (Array.isArray(response.data)) {
+        data = response.data;
+      } else if (
+        typeof response.data === 'object' &&
+        response.data !== null &&
+        'data' in response.data
+      ) {
+        data = (
+          response.data as { data?: unknown }
+        ).data;
+      }
+
+      if (!Array.isArray(data)) {
+        throw new CoinMarketCapClientError(
+          'CMC_INVALID_RESPONSE',
+          'CoinMarketCap returned an invalid mapping response'
+        );
+      }
+
+      const assets = data.filter(
+        (item): item is CmcMapAsset => {
+          if (
+            typeof item !== 'object' ||
+            item === null
+          ) {
+            return false;
+          }
+
+          const asset =
+            item as Partial<CmcMapAsset>;
+
+          return (
+            typeof asset.id === 'number' &&
+            typeof asset.name === 'string' &&
+            typeof asset.symbol === 'string'
+          );
+        }
+      );
+
+      const candidates = assets
+        .filter(
+          (asset) =>
+            asset.symbol.toUpperCase() ===
+              normalizedSymbol &&
+            asset.is_active !== 0
+        )
+        .sort((a, b) => {
+          const rankA =
+            a.rank ?? Number.MAX_SAFE_INTEGER;
+
+          const rankB =
+            b.rank ?? Number.MAX_SAFE_INTEGER;
+
+          return rankA - rankB;
+        });
+
+      const asset = candidates[0];
+
+      if (!asset) {
+        throw new CoinMarketCapClientError(
+          'CMC_CRYPTOCURRENCY_NOT_FOUND',
+          'Cryptocurrency was not found in CoinMarketCap'
+        );
+      }
+
+      return asset.id;
+    } catch (error) {
+      if (
+        error instanceof CoinMarketCapClientError
+      ) {
+        throw error;
+      }
+
+      if (
+        axios.isAxiosError(error) &&
+        error.response?.status === 400
+      ) {
+        throw new CoinMarketCapClientError(
+          'CMC_CRYPTOCURRENCY_NOT_FOUND',
+          'Cryptocurrency was not found in CoinMarketCap'
+        );
+      }
+
+      this.throwMappedRequestError(error);
+    }
+  }
+
   private async request(
     lookup: Record<string, string>
   ): Promise<CmcAsset[]> {
-    if (!this.apiKey) {
-      throw new CoinMarketCapClientError(
-        'CMC_CONFIGURATION_ERROR',
-        'CoinMarketCap API key is not configured'
-      );
-    }
+    this.ensureConfigured();
 
     try {
       const response = await axios.get<unknown>(
         `${this.baseUrl}/v3/cryptocurrency/quotes/latest`,
         {
-          headers: {
-            Accept: 'application/json',
-            'X-CMC_PRO_API_KEY': this.apiKey
-          },
+          headers: this.getHeaders(),
           params: {
             ...lookup,
             convert: this.currency,
@@ -174,47 +268,13 @@ export class CoinMarketCapClient {
 
       return data as CmcAsset[];
     } catch (error) {
-      if (error instanceof CoinMarketCapClientError) {
+      if (
+        error instanceof CoinMarketCapClientError
+      ) {
         throw error;
       }
 
-      if (axios.isAxiosError(error)) {
-        if (
-          error.code === 'ECONNABORTED' ||
-          error.code === 'ETIMEDOUT'
-        ) {
-          throw new CoinMarketCapClientError(
-            'CMC_TIMEOUT',
-            'CoinMarketCap request timed out'
-          );
-        }
-
-        const status = error.response?.status;
-
-        if (status === 401 || status === 403) {
-          throw new CoinMarketCapClientError(
-            'CMC_AUTH_ERROR',
-            'CoinMarketCap authentication failed'
-          );
-        }
-
-        if (status === 429) {
-          throw new CoinMarketCapClientError(
-            'CMC_RATE_LIMIT',
-            'CoinMarketCap rate limit exceeded'
-          );
-        }
-
-        throw new CoinMarketCapClientError(
-          'CMC_API_ERROR',
-          'CoinMarketCap API request failed'
-        );
-      }
-
-      throw new CoinMarketCapClientError(
-        'CMC_API_ERROR',
-        'Unexpected CoinMarketCap API error'
-      );
+      this.throwMappedRequestError(error);
     }
   }
 
@@ -236,7 +296,8 @@ export class CoinMarketCapClient {
 
     const quote = asset.quote.find(
       (item) =>
-        item.symbol.toUpperCase() === this.currency
+        item.symbol.toUpperCase() ===
+        this.currency
     );
 
     if (
@@ -259,5 +320,73 @@ export class CoinMarketCapClient {
       currency: this.currency,
       lastUpdated: quote.last_updated
     };
+  }
+
+  private ensureConfigured(): void {
+    if (!this.apiKey) {
+      throw new CoinMarketCapClientError(
+        'CMC_CONFIGURATION_ERROR',
+        'CoinMarketCap API key is not configured'
+      );
+    }
+
+    if (
+      !Number.isFinite(this.timeoutMs) ||
+      this.timeoutMs <= 0
+    ) {
+      throw new CoinMarketCapClientError(
+        'CMC_CONFIGURATION_ERROR',
+        'Invalid CoinMarketCap timeout configuration'
+      );
+    }
+  }
+
+  private getHeaders(): Record<string, string> {
+    return {
+      Accept: 'application/json',
+      'X-CMC_PRO_API_KEY': this.apiKey
+    };
+  }
+
+  private throwMappedRequestError(
+    error: unknown
+  ): never {
+    if (axios.isAxiosError(error)) {
+      if (
+        error.code === 'ECONNABORTED' ||
+        error.code === 'ETIMEDOUT'
+      ) {
+        throw new CoinMarketCapClientError(
+          'CMC_TIMEOUT',
+          'CoinMarketCap request timed out'
+        );
+      }
+
+      const status = error.response?.status;
+
+      if (status === 401 || status === 403) {
+        throw new CoinMarketCapClientError(
+          'CMC_AUTH_ERROR',
+          'CoinMarketCap authentication failed'
+        );
+      }
+
+      if (status === 429) {
+        throw new CoinMarketCapClientError(
+          'CMC_RATE_LIMIT',
+          'CoinMarketCap rate limit exceeded'
+        );
+      }
+
+      throw new CoinMarketCapClientError(
+        'CMC_API_ERROR',
+        'CoinMarketCap API request failed'
+      );
+    }
+
+    throw new CoinMarketCapClientError(
+      'CMC_API_ERROR',
+      'Unexpected CoinMarketCap API error'
+    );
   }
 }
